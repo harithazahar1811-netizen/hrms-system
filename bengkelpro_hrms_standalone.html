@@ -1,0 +1,1027 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BengkelPro HRMS — Role-Based HR & Workshop Management System</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- React & ReactDOM Production UMD -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <!-- Babel Standalone for JSX compilation in browser -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif; }
+    @media print {
+      aside, header, button { display: none !important; }
+      main { padding: 0 !important; max-width: 100% !important; }
+    }
+  </style>
+</head>
+<body class="bg-[#F8FAFC] text-slate-800 antialiased">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    // Lightweight Icon Renderer using Lucide
+    const Icon = ({ name, size = 18, className = "" }) => {
+      const ref = React.useRef(null);
+      useEffect(() => {
+        if (ref.current && window.lucide) {
+          ref.current.innerHTML = '';
+          const i = document.createElement('i');
+          i.setAttribute('data-lucide', name);
+          i.style.width = `${size}px`;
+          i.style.height = `${size}px`;
+          if (className) i.setAttribute('class', className);
+          ref.current.appendChild(i);
+          window.lucide.createIcons({ root: ref.current });
+        }
+      }, [name, size, className]);
+      return <span ref={ref} className="inline-flex items-center justify-center shrink-0" />;
+    };
+
+    const navItems = {
+      'admin-dashboard': { id: 'admin-dashboard', label: 'HR Dashboard', icon: 'home' },
+      'employee-mgmt': { id: 'employee-mgmt', label: 'Employee Mgmt', icon: 'users' },
+      'user-roles': { id: 'user-roles', label: 'User & Role Mgmt', icon: 'shield' },
+      'payroll-mgmt': { id: 'payroll-mgmt', label: 'Payroll Mgmt', icon: 'dollar-sign' },
+      'claims-mgmt': { id: 'claims-mgmt', label: 'Claims Management', icon: 'credit-card' },
+      'leave-mgmt': { id: 'leave-mgmt', label: 'Leave Mgmt', icon: 'calendar' },
+      'asset-mgmt': { id: 'asset-mgmt', label: 'Company Assets', icon: 'package' },
+      'admin-announcements': { id: 'admin-announcements', label: 'Announcements', icon: 'megaphone' },
+      'org-chart': { id: 'org-chart', label: 'Org Chart', icon: 'network' },
+      'doc-mgmt': { id: 'doc-mgmt', label: 'Documents & Letters', icon: 'file-text' },
+
+      'emp-dashboard': { id: 'emp-dashboard', label: 'My Dashboard', icon: 'home' },
+      'emp-profile': { id: 'emp-profile', label: 'My Profile', icon: 'user' },
+      'emp-leave': { id: 'emp-leave', label: 'My Leave', icon: 'calendar' },
+      'emp-payroll': { id: 'emp-payroll', label: 'My Payroll', icon: 'dollar-sign' },
+      'emp-claims': { id: 'emp-claims', label: 'My Claims', icon: 'receipt' },
+      'emp-assets': { id: 'emp-assets', label: 'My Assets', icon: 'package' },
+      'emp-org-chart': { id: 'emp-org-chart', label: 'Org Chart', icon: 'network' },
+      'emp-announcements': { id: 'emp-announcements', label: 'Announcements', icon: 'megaphone' },
+    };
+
+    const roleNavMap = {
+      'Super Admin': [
+        'admin-dashboard', 'employee-mgmt', 'user-roles', 'payroll-mgmt', 'claims-mgmt', 'leave-mgmt', 'asset-mgmt', 'admin-announcements', 'org-chart', 'doc-mgmt',
+        'emp-profile', 'emp-leave', 'emp-payroll', 'emp-claims', 'emp-assets'
+      ],
+      'HR Admin': [
+        'admin-dashboard', 'employee-mgmt', 'user-roles', 'claims-mgmt', 'leave-mgmt', 'asset-mgmt', 'admin-announcements', 'org-chart', 'doc-mgmt',
+        'emp-profile', 'emp-leave', 'emp-payroll', 'emp-claims', 'emp-assets'
+      ],
+      'Manager / Supervisor': [
+        'admin-dashboard', 'claims-mgmt', 'leave-mgmt', 'org-chart',
+        'emp-profile', 'emp-leave', 'emp-payroll', 'emp-claims', 'emp-assets', 'emp-announcements'
+      ],
+      'Finance': [
+        'admin-dashboard', 'payroll-mgmt', 'claims-mgmt', 'org-chart',
+        'emp-profile', 'emp-leave', 'emp-payroll', 'emp-claims', 'emp-assets', 'emp-announcements'
+      ],
+      'Employee': ['emp-dashboard', 'emp-profile', 'emp-leave', 'emp-payroll', 'emp-claims', 'emp-assets', 'emp-org-chart', 'emp-announcements'],
+    };
+
+    const formatMoney = (val) => {
+      const num = Number(val);
+      return isNaN(num) ? '0.00' : num.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    };
+
+    function App() {
+      const loadSaved = (key, fallback) => {
+        try {
+          const saved = localStorage.getItem(`bengkelpro_html_${key}`);
+          return saved ? JSON.parse(saved) : fallback;
+        } catch {
+          return fallback;
+        }
+      };
+
+      const [loggedInUser, setLoggedInUser] = useState(() => loadSaved('loggedInUser', null));
+      const [loginEmail, setLoginEmail] = useState('');
+      const [loginPassword, setLoginPassword] = useState('');
+      const [loginError, setLoginError] = useState('');
+      const [activeTab, setActiveTab] = useState('admin-dashboard');
+      const [sidebarOpen, setSidebarOpen] = useState(true);
+      const [globalToast, setGlobalToast] = useState('');
+
+      const [employees, setEmployees] = useState(() => loadSaved('employees', [
+        { id: 'EMP-001', name: 'Tan Sri Azman', preferredName: 'Azman', ic: '720514-14-5521', workEmail: 'azman@bengkelpro.my', password: 'password123', systemRole: 'Super Admin', phone: '+60 12-200 1111', address: 'Bukit Tunku, Kuala Lumpur', department: 'Executive', role: 'Chief Executive Officer (CEO)', joinDate: '01/01/2018', managerId: null, location: 'HQ', status: 'Active', basicSalary: 18000, alBalance: 24, mcBalance: 14, bankName: 'Maybank', bankAccount: '**** **** 8821' },
+        { id: 'EMP-002', name: 'Ahmad Albab', preferredName: 'Ahmad', ic: '850820-10-5123', workEmail: 'ahmad@bengkelpro.my', password: 'password123', systemRole: 'Manager / Supervisor', phone: '+60 13-345 6789', address: 'Setiawangsa, Kuala Lumpur', department: 'Workshop Operations', role: 'Head Foreman & Service Manager', joinDate: '15/03/2020', managerId: 'EMP-001', location: 'HQ', status: 'Active', basicSalary: 5800, alBalance: 14, mcBalance: 12, bankName: 'CIMB Bank', bankAccount: '**** **** 4410' },
+        { id: 'EMP-003', name: 'Sarah Lee', preferredName: 'Sarah', ic: '900312-07-5882', workEmail: 'sarah@bengkelpro.my', password: 'password123', systemRole: 'HR Admin', phone: '+60 16-778 9900', address: 'Subang Jaya, Selangor', department: 'Human Resources & Admin', role: 'HR & Finance Manager', joinDate: '10/06/2021', managerId: 'EMP-001', location: 'HQ', status: 'Active', basicSalary: 5200, alBalance: 16, mcBalance: 14, bankName: 'Public Bank', bankAccount: '**** **** 9012' },
+        { id: 'EMP-004', name: 'David Chen', preferredName: 'David', ic: '941105-08-6129', workEmail: 'david@bengkelpro.my', password: 'password123', systemRole: 'Employee', phone: '+60 17-554 3321', address: 'USJ 11, Subang Jaya', department: 'Marketing', role: 'Marketing Executive', joinDate: '01/02/2023', managerId: 'EMP-003', location: 'Branch A', status: 'Active', basicSalary: 3600, alBalance: 11, mcBalance: 13, bankName: 'Maybank', bankAccount: '**** **** 3319' },
+        { id: 'EMP-005', name: 'Muthu Kumar', preferredName: 'Muthu', ic: '960719-05-5431', workEmail: 'muthu@bengkelpro.my', password: 'password123', systemRole: 'Employee', phone: '+60 14-662 1188', address: 'Shah Alam, Selangor', department: 'Workshop Operations', role: 'Senior Mechanic', joinDate: '15/08/2022', managerId: 'EMP-002', location: 'HQ', status: 'Active', basicSalary: 3400, alBalance: 10, mcBalance: 11, bankName: 'RHB Bank', bankAccount: '**** **** 7745' }
+      ]));
+
+      const [payslips, setPayslips] = useState(() => loadSaved('payslips', [
+        { id: 101, empId: 'EMP-004', empName: 'David Chen', month: 'October 2026', basic: 3600, allowance: 300, commission: 450, ot: 120, deductions: 435, netPay: 4035, status: 'Paid', fileName: 'Payslip_EMP004_Oct2026.pdf' },
+        { id: 102, empId: 'EMP-002', empName: 'Ahmad Albab', month: 'October 2026', basic: 5800, allowance: 500, commission: 1150, ot: 320, deductions: 790, netPay: 6980, status: 'Paid', fileName: 'Payslip_EMP002_Oct2026.pdf' },
+        { id: 103, empId: 'EMP-005', empName: 'Muthu Kumar', month: 'October 2026', basic: 3400, allowance: 250, commission: 880, ot: 280, deductions: 410, netPay: 4400, status: 'Paid', fileName: 'Payslip_EMP005_Oct2026.pdf' },
+      ]));
+
+      const [leaveTypes, setLeaveTypes] = useState(() => loadSaved('leaveTypes', [
+        { id: 1, name: 'Annual Leave', paidType: 'Paid', deductBalance: 'Yes', defaultDays: 14, status: 'Active' },
+        { id: 2, name: 'Medical Leave', paidType: 'Paid', deductBalance: 'Yes', defaultDays: 14, status: 'Active' },
+        { id: 3, name: 'Hospitalisation Leave', paidType: 'Paid', deductBalance: 'Yes', defaultDays: 60, status: 'Active' },
+        { id: 4, name: 'Emergency Leave', paidType: 'Configurable', deductBalance: 'Configurable', defaultDays: 3, status: 'Active' },
+        { id: 5, name: 'Unpaid Leave', paidType: 'Unpaid', deductBalance: 'No paid balance', defaultDays: 0, status: 'Active' },
+      ]));
+
+      const [leaves, setLeaves] = useState(() => loadSaved('leaves', [
+        { id: 1, empId: 'EMP-004', empName: 'David Chen', type: 'Annual Leave', startDate: '2026-11-20', endDate: '2026-11-22', days: 3, reason: 'Family trip to Melaka', attachment: '', status: 'Pending' },
+        { id: 2, empId: 'EMP-005', empName: 'Muthu Kumar', type: 'Medical Leave', startDate: '2026-11-10', endDate: '2026-11-11', days: 2, reason: 'High fever & flu', attachment: 'MC_Klinik.pdf', status: 'Pending' },
+      ]));
+
+      const [claims, setClaims] = useState(() => loadSaved('claims', [
+        { id: 1, refNo: 'CLM-2026-1001', empId: 'EMP-004', empName: 'David Chen', department: 'Marketing', branch: 'Branch A', type: 'Mileage, Toll & Petrol', amount: 145.50, projectCode: 'CC-MKT-01', receiptName: 'petronas_toll.pdf', remarks: 'Client visits', submissionDate: '2026-11-05', monthYear: '2026-11', status: 'Pending', rejectionReason: '' },
+        { id: 2, refNo: 'CLM-2026-1002', empId: 'EMP-005', empName: 'Muthu Kumar', department: 'Workshop Operations', branch: 'HQ', type: 'Urgent Workshop Parts / Tools', amount: 235.50, projectCode: 'CC-WS-HQ', receiptName: 'spare_parts.jpg', remarks: 'OBD2 cable replacement', submissionDate: '2026-11-10', monthYear: '2026-11', status: 'Pending', rejectionReason: '' },
+      ]));
+
+      const [claimPolicies] = useState([
+        { id: 1, category: 'Medical & Dental', monthlyLimit: 300, yearlyLimit: 1500, status: 'Active' },
+        { id: 2, category: 'Mileage, Toll & Petrol', monthlyLimit: 500, yearlyLimit: 6000, status: 'Active' },
+        { id: 3, category: 'Urgent Workshop Parts / Tools', monthlyLimit: 1000, yearlyLimit: 10000, status: 'Active' },
+      ]);
+
+      const [announcements, setAnnouncements] = useState(() => loadSaved('announcements', [
+        { id: 1, title: 'Annual Workshop Stocktake & Safety Audit', category: 'Policy', priority: 'Urgent', date: '2026-11-12', author: 'Sarah Lee (HR Manager)', content: 'All workshop mechanics are required to attend the safety briefing this Friday at 9:00 AM.', acknowledgedBy: ['EMP-002'] },
+      ]));
+
+      const [assets, setAssets] = useState(() => loadSaved('assets', [
+        { id: 'AST-001', name: 'MacBook Pro 14"', category: 'Laptop / Computer', serialNo: 'C02X9182MD6R', assignedTo: 'EMP-004', assignedDate: '2023-02-01', condition: 'Good', status: 'Assigned' },
+        { id: 'AST-002', name: 'Samsung Galaxy S23', category: 'Mobile Phone', serialNo: 'R58T90123KL', assignedTo: 'EMP-002', assignedDate: '2023-05-15', condition: 'Good', status: 'Assigned' },
+      ]));
+
+      const [auditLogs, setAuditLogs] = useState(() => loadSaved('auditLogs', [
+        { id: 1, timestamp: '2026-11-10 09:15:22', actorName: 'Tan Sri Azman', actorId: 'EMP-001', actorRole: 'Super Admin', action: 'ROLE_UPDATED', target: 'Ahmad Albab (EMP-002)', details: 'Assigned Manager / Supervisor role' }
+      ]));
+
+      // Modals & Form States
+      const [editingUserRole, setEditingUserRole] = useState(null);
+      const [userRoleSubTab, setUserRoleSubTab] = useState('Users & Roles');
+      const [editingClaim, setEditingClaim] = useState(null);
+      const [empLeaveModal, setEmpLeaveModal] = useState(false);
+      const [newLeaveReq, setNewLeaveReq] = useState({ type: 'Annual Leave', startDate: '2026-11-25', endDate: '2026-11-26', days: 2, reason: '', attachment: '' });
+      const [payrollModalOpen, setPayrollModalOpen] = useState(false);
+      const [newPayslip, setNewPayslip] = useState({ empId: 'EMP-004', month: 'November 2026', allowance: 300, commission: 500, ot: 100, deductions: 435 });
+      const [selectedLetterType, setSelectedLetterType] = useState('Employment Confirmation Letter');
+      const [selectedLetterEmpId, setSelectedLetterEmpId] = useState('EMP-004');
+      const [newAnnounceModal, setNewAnnounceModal] = useState(false);
+      const [newAnnounce, setNewAnnounce] = useState({ title: '', category: 'General', priority: 'Normal', content: '' });
+
+      useEffect(() => {
+        try {
+          localStorage.setItem('bengkelpro_html_loggedInUser', JSON.stringify(loggedInUser));
+          localStorage.setItem('bengkelpro_html_employees', JSON.stringify(employees));
+          localStorage.setItem('bengkelpro_html_payslips', JSON.stringify(payslips));
+          localStorage.setItem('bengkelpro_html_leaves', JSON.stringify(leaves));
+          localStorage.setItem('bengkelpro_html_claims', JSON.stringify(claims));
+          localStorage.setItem('bengkelpro_html_announcements', JSON.stringify(announcements));
+          localStorage.setItem('bengkelpro_html_assets', JSON.stringify(assets));
+          localStorage.setItem('bengkelpro_html_auditLogs', JSON.stringify(auditLogs));
+        } catch {}
+      }, [loggedInUser, employees, payslips, leaves, claims, announcements, assets, auditLogs]);
+
+      const showToast = (msg) => {
+        setGlobalToast(msg);
+        setTimeout(() => setGlobalToast(''), 3500);
+      };
+
+      const activeEmployeeRecord = employees.find(e => e.id === loggedInUser?.id) || employees[0];
+      const currentRole = loggedInUser?.systemRole || 'Employee';
+
+      const logAuditEvent = (action, target, details) => {
+        const now = new Date();
+        const ts = `${now.toISOString().split('T')[0]} ${now.toTimeString().split(' ')[0]}`;
+        setAuditLogs(prev => [{ id: Date.now() + Math.random(), timestamp: ts, actorName: activeEmployeeRecord.name, actorId: activeEmployeeRecord.id, actorRole: currentRole, action, target, details }, ...prev]);
+      };
+
+      const isUnderManagerHierarchy = (managerEmpId, targetEmpId) => {
+        if (!managerEmpId || !targetEmpId || managerEmpId === targetEmpId) return false;
+        let curr = employees.find(e => e.id === targetEmpId);
+        const visited = new Set();
+        while (curr && curr.managerId && !visited.has(curr.id)) {
+          if (curr.managerId === managerEmpId) return true;
+          visited.add(curr.id);
+          curr = employees.find(e => e.id === curr.managerId);
+        }
+        return false;
+      };
+
+      const canApproveForEmployee = (targetEmpId) => {
+        if (currentRole === 'Super Admin' || currentRole === 'HR Admin') return true;
+        if (currentRole === 'Manager / Supervisor') return isUnderManagerHierarchy(activeEmployeeRecord.id, targetEmpId);
+        return false;
+      };
+
+      const handleLoginSubmit = (e) => {
+        e.preventDefault();
+        setLoginError('');
+        const matched = employees.find(emp => emp.workEmail.toLowerCase() === loginEmail.trim().toLowerCase() && emp.password === loginPassword);
+        if (!matched) {
+          setLoginError('Invalid company email or password.');
+          return;
+        }
+        if (matched.status !== 'Active') {
+          setLoginError('Account is inactive. Contact HR Admin.');
+          return;
+        }
+        setLoggedInUser(matched);
+        const allowed = roleNavMap[matched.systemRole] || ['emp-dashboard'];
+        setActiveTab(allowed[0]);
+        showToast(`Welcome ${matched.name}! Role detected: ${matched.systemRole}`);
+      };
+
+      // ================= LOGIN SCREEN =================
+      if (!loggedInUser) {
+        return (
+          <div className="min-h-screen flex flex-col justify-center items-center p-4">
+            <div className="w-full max-w-md bg-white rounded-3xl shadow-lg border border-slate-200/80 overflow-hidden">
+              <div className="p-8 pb-6 text-center border-b border-slate-100 bg-slate-50/60">
+                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white flex items-center justify-center mx-auto mb-4 shadow-md">
+                  <Icon name="users" size={28} />
+                </div>
+                <h1 className="text-2xl font-extrabold text-slate-900">HR Management System</h1>
+                <p className="text-sm text-slate-500 mt-1">Welcome back! Please sign in to continue.</p>
+              </div>
+              <form onSubmit={handleLoginSubmit} className="p-8 space-y-5">
+                {loginError && (
+                  <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium">{loginError}</div>
+                )}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1.5">Email Address</label>
+                  <input type="email" required placeholder="Enter your company email" value={loginEmail} onChange={e => setLoginEmail(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1.5">Password</label>
+                  <input type="password" required placeholder="Enter your password" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:border-blue-500" />
+                </div>
+                <div className="flex items-center space-x-2 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 px-3.5 py-2.5 rounded-xl font-medium">
+                  <Icon name="shield-check" size={16} className="text-emerald-600" />
+                  <span>Your account role will be detected automatically after login.</span>
+                </div>
+                <button type="submit" className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-xl shadow-sm">
+                  Sign In
+                </button>
+              </form>
+              <div className="px-6 py-4 bg-slate-50 border-t border-slate-100">
+                <p className="text-[11px] font-bold uppercase text-slate-400 mb-2">Demo Staff Accounts (Click to Auto-Fill)</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {employees.slice(0, 4).map(acc => (
+                    <button key={acc.id} type="button" onClick={() => { setLoginEmail(acc.workEmail); setLoginPassword(acc.password); setLoginError(''); }} className="text-left p-2 bg-white hover:bg-blue-50 border border-slate-200 rounded-xl">
+                      <p className="text-xs font-bold text-slate-800 truncate">{acc.name}</p>
+                      <p className="text-[10px] font-semibold text-blue-600">{acc.systemRole}</p>
+                      <p className="text-[10px] text-slate-400 truncate">{acc.workEmail}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      const allowedNavIds = roleNavMap[currentRole] || [];
+      const adminNavIds = allowedNavIds.filter(id => !id.startsWith('emp-'));
+      const empNavIds = allowedNavIds.filter(id => id.startsWith('emp-'));
+
+      // ================= RENDER VIEWS =================
+      const renderContent = () => {
+        if (!allowedNavIds.includes(activeTab)) {
+          return (
+            <div className="bg-white rounded-2xl border border-rose-200 p-10 text-center max-w-md mx-auto my-12 space-y-3">
+              <h3 className="text-lg font-bold text-gray-900">403 • Access Denied</h3>
+              <p className="text-xs text-gray-500">Your role ({currentRole}) is not authorized to view this module.</p>
+            </div>
+          );
+        }
+
+        if (activeTab === 'admin-dashboard') {
+          return (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">HR & Workshop Executive Dashboard</h2>
+                <p className="text-gray-500 text-sm mt-1">Real-time workforce metrics, pending approvals, and payroll overview.</p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+                  <p className="text-xs font-semibold text-gray-500 uppercase">Total Active Staff</p>
+                  <p className="text-3xl font-bold text-gray-900 mt-2">{employees.length}</p>
+                </div>
+                <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+                  <p className="text-xs font-semibold text-amber-600 uppercase">Pending Leaves</p>
+                  <p className="text-3xl font-bold text-gray-900 mt-2">{leaves.filter(l => l.status === 'Pending').length}</p>
+                  <button onClick={() => setActiveTab('leave-mgmt')} className="text-xs text-blue-600 mt-2 font-medium">Review Leaves →</button>
+                </div>
+                <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+                  <p className="text-xs font-semibold text-purple-600 uppercase">Pending Claims</p>
+                  <p className="text-3xl font-bold text-gray-900 mt-2">{claims.filter(c => c.status === 'Pending').length}</p>
+                  <button onClick={() => setActiveTab('claims-mgmt')} className="text-xs text-blue-600 mt-2 font-medium">Review Claims →</button>
+                </div>
+                <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+                  <p className="text-xs font-semibold text-blue-600 uppercase">Latest Payroll</p>
+                  <p className="text-3xl font-bold text-gray-900 mt-2">RM {formatMoney(payslips.reduce((s, p) => s + Number(p.netPay || 0), 0))}</p>
+                </div>
+              </div>
+              <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm space-y-3">
+                <h3 className="font-bold text-gray-900 text-sm">Company Announcements</h3>
+                {announcements.map(ann => (
+                  <div key={ann.id} className="p-4 bg-gray-50 rounded-xl border border-gray-100">
+                    <div className="flex justify-between">
+                      <h4 className="font-bold text-sm text-gray-900">{ann.title}</h4>
+                      <span className="text-xs font-semibold text-rose-600">{ann.priority}</span>
+                    </div>
+                    <p className="text-xs text-gray-600 mt-1">{ann.content}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        }
+
+        if (activeTab === 'employee-mgmt') {
+          return (
+            <div className="space-y-6">
+              <h2 className="text-2xl font-bold text-gray-900">Employee Master Directory</h2>
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200 text-xs text-gray-500 uppercase font-semibold">
+                      <th className="p-4">Employee</th>
+                      <th className="p-4">Department & Role</th>
+                      <th className="p-4">Basic Salary</th>
+                      <th className="p-4">Leave Balance</th>
+                      <th className="p-4">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {employees.map(emp => (
+                      <tr key={emp.id}>
+                        <td className="p-4"><p className="font-bold text-sm">{emp.name}</p><p className="text-xs text-gray-500">{emp.id} • {emp.workEmail}</p></td>
+                        <td className="p-4 text-sm">{emp.role} ({emp.department})</td>
+                        <td className="p-4 font-bold text-sm">RM {formatMoney(emp.basicSalary)}</td>
+                        <td className="p-4 text-xs">AL: {emp.alBalance}d • MC: {emp.mcBalance}d</td>
+                        <td className="p-4"><span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">{emp.status}</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        }
+
+        if (activeTab === 'user-roles') {
+          return (
+            <div className="space-y-6">
+              <div className="flex flex-wrap justify-between items-center gap-4">
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-900">User, Role & Security Audit Management</h2>
+                  <p className="text-gray-500 text-sm">Assign roles in database, enforce self-role lock, and track audit trail.</p>
+                </div>
+                <div className="flex gap-2">
+                  {['Users & Roles', 'Audit Log'].map(t => (
+                    <button key={t} onClick={() => setUserRoleSubTab(t)} className={`px-3.5 py-1.5 rounded-xl text-xs font-bold ${userRoleSubTab === t ? 'bg-gray-900 text-white' : 'bg-white border border-gray-200 text-gray-600'}`}>
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {userRoleSubTab === 'Audit Log' ? (
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-200 text-xs text-gray-500 uppercase font-semibold">
+                        <th className="p-4">Timestamp</th>
+                        <th className="p-4">Actor</th>
+                        <th className="p-4">Action</th>
+                        <th className="p-4">Target</th>
+                        <th className="p-4">Details</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 text-xs">
+                      {auditLogs.map(log => (
+                        <tr key={log.id}>
+                          <td className="p-4 font-mono">{log.timestamp}</td>
+                          <td className="p-4 font-bold">{log.actorName} ({log.actorRole})</td>
+                          <td className="p-4 font-mono font-bold text-purple-700">{log.action}</td>
+                          <td className="p-4 font-semibold">{log.target}</td>
+                          <td className="p-4 text-gray-600">{log.details}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-200 text-xs text-gray-500 uppercase font-semibold">
+                        <th className="p-4">Employee</th>
+                        <th className="p-4">Company Email</th>
+                        <th className="p-4">System Role</th>
+                        <th className="p-4">Status</th>
+                        <th className="p-4 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {employees.map(emp => {
+                        const isSelf = emp.id === activeEmployeeRecord.id;
+                        return (
+                          <tr key={emp.id}>
+                            <td className="p-4 font-bold text-sm">{emp.name} ({emp.id})</td>
+                            <td className="p-4 text-sm">{emp.workEmail}</td>
+                            <td className="p-4"><span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200">{emp.systemRole}</span></td>
+                            <td className="p-4"><span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700">{emp.status}</span></td>
+                            <td className="p-4 text-right">
+                              {isSelf ? (
+                                <span className="text-xs text-gray-400 font-semibold">Self-Role Locked</span>
+                              ) : (
+                                <button onClick={() => setEditingUserRole({ ...emp, prevRole: emp.systemRole })} className="px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-xs font-bold">
+                                  Edit Role
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {editingUserRole && (
+                <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setEditingUserRole(null)}>
+                  <div className="bg-white rounded-2xl p-6 w-full max-w-md space-y-4" onClick={e => e.stopPropagation()}>
+                    <h3 className="font-bold text-gray-900">Edit Role • {editingUserRole.name}</h3>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">System Role</label>
+                      <select value={editingUserRole.systemRole} onChange={e => setEditingUserRole({ ...editingUserRole, systemRole: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm">
+                        <option value="Employee">Staff (Employee)</option>
+                        <option value="Manager / Supervisor">Manager / Supervisor</option>
+                        <option value="HR Admin">HR Admin</option>
+                        <option value="Finance">Finance</option>
+                        {currentRole === 'Super Admin' && <option value="Super Admin">Super Admin</option>}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">Account Status</label>
+                      <select value={editingUserRole.status} onChange={e => setEditingUserRole({ ...editingUserRole, status: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded-xl text-sm">
+                        <option value="Active">Active</option>
+                        <option value="Inactive">Inactive</option>
+                      </select>
+                    </div>
+                    <div className="flex justify-end gap-2 pt-2">
+                      <button onClick={() => setEditingUserRole(null)} className="px-4 py-2 border rounded-xl text-xs">Cancel</button>
+                      <button
+                        onClick={() => {
+                          setEmployees(employees.map(em => em.id === editingUserRole.id ? { ...em, systemRole: editingUserRole.systemRole, status: editingUserRole.status } : em));
+                          logAuditEvent('ROLE_UPDATED', `${editingUserRole.name} (${editingUserRole.id})`, `Changed role from ${editingUserRole.prevRole} to ${editingUserRole.systemRole}`);
+                          setEditingUserRole(null);
+                          showToast('User role updated & logged in Audit Trail.');
+                        }}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold"
+                      >
+                        Save Role
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        }
+
+        if (activeTab === 'payroll-mgmt') {
+          return (
+            <div className="space-y-6">
+              <div className="flex justify-between items-center">
+                <h2 className="text-2xl font-bold text-gray-900">Payroll Management</h2>
+                <button onClick={() => setPayrollModalOpen(true)} className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold">+ Upload Payslip</button>
+              </div>
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200 text-xs text-gray-500 uppercase font-semibold">
+                      <th className="p-4">Employee</th>
+                      <th className="p-4">Month</th>
+                      <th className="p-4">Basic</th>
+                      <th className="p-4">Net Pay</th>
+                      <th className="p-4">File</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {payslips.map(p => (
+                      <tr key={p.id}>
+                        <td className="p-4 font-bold text-sm">{p.empName}</td>
+                        <td className="p-4 text-sm">{p.month}</td>
+                        <td className="p-4 text-sm">RM {formatMoney(p.basic)}</td>
+                        <td className="p-4 font-bold text-sm text-emerald-700">RM {formatMoney(p.netPay)}</td>
+                        <td className="p-4 text-xs text-blue-600 font-semibold">{p.fileName}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {payrollModalOpen && (
+                <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setPayrollModalOpen(false)}>
+                  <div className="bg-white rounded-2xl p-6 w-full max-w-md space-y-4" onClick={e => e.stopPropagation()}>
+                    <h3 className="font-bold">Publish Payslip</h3>
+                    <select value={newPayslip.empId} onChange={e => setNewPayslip({ ...newPayslip, empId: e.target.value })} className="w-full px-3 py-2 border rounded-xl text-sm">
+                      {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+                    </select>
+                    <input type="text" value={newPayslip.month} onChange={e => setNewPayslip({ ...newPayslip, month: e.target.value })} className="w-full px-3 py-2 border rounded-xl text-sm" />
+                    <div className="flex justify-end gap-2">
+                      <button onClick={() => setPayrollModalOpen(false)} className="px-4 py-2 border rounded-xl text-xs">Cancel</button>
+                      <button
+                        onClick={() => {
+                          const emp = employees.find(e => e.id === newPayslip.empId);
+                          const netPay = Number(emp.basicSalary) + 400;
+                          setPayslips([{ id: Date.now(), empId: emp.id, empName: emp.name, month: newPayslip.month, basic: emp.basicSalary, allowance: 200, commission: 300, ot: 100, deductions: 200, netPay, status: 'Paid', fileName: `Payslip_${emp.id}.pdf` }, ...payslips]);
+                          setPayrollModalOpen(false);
+                          showToast(`Payslip published for ${emp.name}`);
+                        }}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold"
+                      >
+                        Publish
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        }
+
+        if (activeTab === 'claims-mgmt') {
+          return (
+            <div className="space-y-6">
+              <h2 className="text-2xl font-bold text-gray-900">Claims Management Dashboard</h2>
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200 text-xs text-gray-500 uppercase font-semibold">
+                      <th className="p-4">Ref No</th>
+                      <th className="p-4">Employee</th>
+                      <th className="p-4">Category</th>
+                      <th className="p-4">Amount</th>
+                      <th className="p-4">Status</th>
+                      <th className="p-4 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {claims.map(c => (
+                      <tr key={c.id}>
+                        <td className="p-4 font-mono text-xs font-bold">{c.refNo}</td>
+                        <td className="p-4 text-sm font-semibold">{c.empName} ({c.department})</td>
+                        <td className="p-4 text-sm">{c.type}</td>
+                        <td className="p-4 font-bold text-sm">RM {formatMoney(c.amount)}</td>
+                        <td className="p-4"><span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700">{c.status}</span></td>
+                        <td className="p-4 text-right space-x-2">
+                          {c.status === 'Pending' && canApproveForEmployee(c.empId) ? (
+                            <>
+                              <button onClick={() => { setClaims(claims.map(item => item.id === c.id ? { ...item, status: 'Approved' } : item)); logAuditEvent('CLAIM_APPROVED', c.refNo, `Approved RM ${c.amount}`); showToast('Claim approved!'); }} className="px-3 py-1 bg-emerald-600 text-white rounded-lg text-xs font-bold">Approve</button>
+                              <button onClick={() => { setClaims(claims.map(item => item.id === c.id ? { ...item, status: 'Rejected' } : item)); logAuditEvent('CLAIM_REJECTED', c.refNo, 'Rejected claim'); showToast('Claim rejected.'); }} className="px-3 py-1 bg-rose-50 text-rose-600 rounded-lg text-xs font-bold">Reject</button>
+                            </>
+                          ) : c.status === 'Pending' ? (
+                            <span className="text-xs text-gray-400">Outside Reporting Line</span>
+                          ) : <span className="text-xs text-gray-400">Done</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        }
+
+        if (activeTab === 'leave-mgmt') {
+          return (
+            <div className="space-y-6">
+              <h2 className="text-2xl font-bold text-gray-900">Leave Management & Approvals</h2>
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200 text-xs text-gray-500 uppercase font-semibold">
+                      <th className="p-4">Employee</th>
+                      <th className="p-4">Leave Type</th>
+                      <th className="p-4">Dates</th>
+                      <th className="p-4">Status</th>
+                      <th className="p-4 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {leaves.map(l => (
+                      <tr key={l.id}>
+                        <td className="p-4 font-bold text-sm">{l.empName}</td>
+                        <td className="p-4 text-sm">{l.type}</td>
+                        <td className="p-4 text-xs">{l.startDate} to {l.endDate} ({l.days}d)</td>
+                        <td className="p-4"><span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700">{l.status}</span></td>
+                        <td className="p-4 text-right space-x-2">
+                          {l.status === 'Pending' && canApproveForEmployee(l.empId) ? (
+                            <>
+                              <button onClick={() => { setLeaves(leaves.map(item => item.id === l.id ? { ...item, status: 'Approved' } : item)); logAuditEvent('LEAVE_APPROVED', l.empName, `Approved ${l.days}d ${l.type}`); showToast('Leave approved!'); }} className="px-3 py-1 bg-emerald-600 text-white rounded-lg text-xs font-bold">Approve</button>
+                              <button onClick={() => { setLeaves(leaves.map(item => item.id === l.id ? { ...item, status: 'Rejected' } : item)); showToast('Leave rejected.'); }} className="px-3 py-1 bg-rose-50 text-rose-600 rounded-lg text-xs font-bold">Reject</button>
+                            </>
+                          ) : l.status === 'Pending' ? (
+                            <span className="text-xs text-gray-400">Outside Reporting Line</span>
+                          ) : <span className="text-xs text-gray-400">Processed</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        }
+
+        if (activeTab === 'doc-mgmt') {
+          const targetEmp = employees.find(e => e.id === selectedLetterEmpId) || employees[0];
+          return (
+            <div className="space-y-6">
+              <div className="flex justify-between items-center">
+                <h2 className="text-2xl font-bold text-gray-900">HR Official Letter Generator</h2>
+                <button onClick={() => window.print()} className="bg-gray-900 text-white px-4 py-2 rounded-xl text-xs font-bold">Print / Save PDF</button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="bg-white p-5 rounded-2xl border border-gray-200 space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold mb-1">Letter Type</label>
+                    <select value={selectedLetterType} onChange={e => setSelectedLetterType(e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm">
+                      <option>Employment Offer Letter</option>
+                      <option>Employment Confirmation Letter</option>
+                      <option>Salary Increment Letter</option>
+                      <option>Promotion Letter</option>
+                      <option>Warning Letter</option>
+                      <option>Employment Verification Letter</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold mb-1">Select Staff</label>
+                    <select value={selectedLetterEmpId} onChange={e => setSelectedLetterEmpId(e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm">
+                      {employees.map(e => <option key={e.id} value={e.id}>{e.name} ({e.id})</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div className="md:col-span-2 bg-white p-8 rounded-2xl border border-gray-200 space-y-4">
+                  <div className="border-b-2 border-gray-900 pb-3">
+                    <h3 className="font-extrabold text-lg">BENGKELPRO AUTOMOTIVE SDN BHD</h3>
+                    <p className="text-xs text-gray-500">Kuala Lumpur, Malaysia</p>
+                  </div>
+                  <p className="text-xs"><strong>To:</strong> {targetEmp.name} (IC: {targetEmp.ic})</p>
+                  <h4 className="font-bold uppercase underline text-sm">RE: {selectedLetterType.toUpperCase()}</h4>
+                  <p className="text-sm leading-relaxed text-gray-700">
+                    This official letter is issued to <strong>{targetEmp.name}</strong> ({targetEmp.id}), holding the position of <strong>{targetEmp.role}</strong> in the <strong>{targetEmp.department}</strong> department ({targetEmp.location}) with a current basic salary of <strong>RM {formatMoney(targetEmp.basicSalary)}</strong>.
+                  </p>
+                  <div className="pt-8 text-xs">
+                    <p>Yours faithfully,</p>
+                    <p className="font-bold mt-6">Human Resources Department</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        if (activeTab === 'org-chart' || activeTab === 'emp-org-chart') {
+          return (
+            <div className="space-y-6">
+              <h2 className="text-2xl font-bold text-gray-900">Organization Chart</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {employees.map(emp => {
+                  const mgr = employees.find(m => m.id === emp.managerId);
+                  return (
+                    <div key={emp.id} className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm">
+                      <p className="font-bold text-gray-900">{emp.name}</p>
+                      <p className="text-xs text-blue-600 font-semibold">{emp.role}</p>
+                      <p className="text-xs text-gray-500 mt-1">{emp.department} • {emp.location}</p>
+                      <p className="text-[11px] text-gray-400 mt-2 pt-2 border-t">Reports to: <strong>{mgr ? mgr.name : 'Board / Top Level'}</strong></p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        }
+
+        if (activeTab === 'asset-mgmt' || activeTab === 'emp-assets') {
+          const list = activeTab === 'emp-assets' ? assets.filter(a => a.assignedTo === activeEmployeeRecord.id) : assets;
+          return (
+            <div className="space-y-6">
+              <h2 className="text-2xl font-bold text-gray-900">{activeTab === 'emp-assets' ? 'My Assigned Assets' : 'Company Assets Management'}</h2>
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200 text-xs text-gray-500 uppercase font-semibold">
+                      <th className="p-4">Asset ID</th>
+                      <th className="p-4">Item & Category</th>
+                      <th className="p-4">Assigned To</th>
+                      <th className="p-4">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {list.map(a => (
+                      <tr key={a.id}>
+                        <td className="p-4 font-mono text-xs font-bold">{a.id}</td>
+                        <td className="p-4 text-sm font-semibold">{a.name} ({a.category})</td>
+                        <td className="p-4 text-sm">{employees.find(e => e.id === a.assignedTo)?.name || 'Available'}</td>
+                        <td className="p-4"><span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700">{a.status}</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        }
+
+        if (activeTab === 'admin-announcements' || activeTab === 'emp-announcements') {
+          return (
+            <div className="space-y-6">
+              <div className="flex justify-between items-center">
+                <h2 className="text-2xl font-bold text-gray-900">Company Announcements</h2>
+                {activeTab === 'admin-announcements' && (
+                  <button onClick={() => setNewAnnounceModal(true)} className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold">+ New Announcement</button>
+                )}
+              </div>
+              <div className="space-y-4">
+                {announcements.map(ann => (
+                  <div key={ann.id} className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
+                    <div className="flex justify-between">
+                      <h3 className="font-bold text-lg text-gray-900">{ann.title}</h3>
+                      <span className="text-xs font-bold text-rose-600">{ann.priority}</span>
+                    </div>
+                    <p className="text-sm text-gray-700 mt-2">{ann.content}</p>
+                    <p className="text-xs text-gray-400 mt-3">{ann.date} • Posted by {ann.author}</p>
+                  </div>
+                ))}
+              </div>
+              {newAnnounceModal && (
+                <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setNewAnnounceModal(false)}>
+                  <div className="bg-white rounded-2xl p-6 w-full max-w-md space-y-4" onClick={e => e.stopPropagation()}>
+                    <h3 className="font-bold">Publish Announcement</h3>
+                    <input type="text" placeholder="Title" value={newAnnounce.title} onChange={e => setNewAnnounce({ ...newAnnounce, title: e.target.value })} className="w-full px-3 py-2 border rounded-xl text-sm" />
+                    <textarea rows="3" placeholder="Message" value={newAnnounce.content} onChange={e => setNewAnnounce({ ...newAnnounce, content: e.target.value })} className="w-full px-3 py-2 border rounded-xl text-sm" />
+                    <div className="flex justify-end gap-2">
+                      <button onClick={() => setNewAnnounceModal(false)} className="px-4 py-2 border rounded-xl text-xs">Cancel</button>
+                      <button onClick={() => { setAnnouncements([{ id: Date.now(), title: newAnnounce.title, category: 'General', priority: 'Normal', date: new Date().toISOString().split('T')[0], author: activeEmployeeRecord.name, content: newAnnounce.content, acknowledgedBy: [] }, ...announcements]); setNewAnnounceModal(false); showToast('Announcement published!'); }} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold">Publish</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        }
+
+        if (activeTab === 'emp-dashboard' || activeTab === 'emp-profile') {
+          const u = activeEmployeeRecord;
+          return (
+            <div className="space-y-6">
+              <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-6 rounded-2xl text-white">
+                <h2 className="text-2xl font-bold">Welcome back, {u.name}!</h2>
+                <p className="text-sm text-blue-100 mt-1">{u.role} • {u.department} ({u.location})</p>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="bg-white p-6 rounded-2xl border border-gray-200"><p className="text-xs text-gray-500 uppercase font-bold">Annual Leave</p><p className="text-3xl font-bold mt-2">{u.alBalance} Days</p></div>
+                <div className="bg-white p-6 rounded-2xl border border-gray-200"><p className="text-xs text-gray-500 uppercase font-bold">Medical Leave</p><p className="text-3xl font-bold mt-2">{u.mcBalance} Days</p></div>
+                <div className="bg-white p-6 rounded-2xl border border-gray-200"><p className="text-xs text-gray-500 uppercase font-bold">Basic Salary</p><p className="text-3xl font-bold mt-2">RM {formatMoney(u.basicSalary)}</p></div>
+              </div>
+              <div className="bg-white p-6 rounded-2xl border border-gray-200 grid grid-cols-2 gap-4 text-xs">
+                <div><span className="text-gray-400 block">Employee ID</span><strong>{u.id}</strong></div>
+                <div><span className="text-gray-400 block">IC / Passport</span><strong>{u.ic}</strong></div>
+                <div><span className="text-gray-400 block">Company Email</span><strong>{u.workEmail}</strong></div>
+                <div><span className="text-gray-400 block">Bank Account</span><strong>{u.bankName} ({u.bankAccount})</strong></div>
+              </div>
+            </div>
+          );
+        }
+
+        if (activeTab === 'emp-leave') {
+          const myLeaves = leaves.filter(l => l.empId === activeEmployeeRecord.id);
+          return (
+            <div className="space-y-6">
+              <div className="flex justify-between items-center">
+                <h2 className="text-2xl font-bold text-gray-900">My Leave Applications</h2>
+                <button onClick={() => setEmpLeaveModal(true)} className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold">+ Apply Leave</button>
+              </div>
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200 text-xs text-gray-500 uppercase font-semibold">
+                      <th className="p-4">Leave Type</th>
+                      <th className="p-4">Dates</th>
+                      <th className="p-4">Days</th>
+                      <th className="p-4">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {myLeaves.map(l => (
+                      <tr key={l.id}>
+                        <td className="p-4 font-bold text-sm">{l.type}</td>
+                        <td className="p-4 text-xs">{l.startDate} to {l.endDate}</td>
+                        <td className="p-4 text-xs font-bold">{l.days}d</td>
+                        <td className="p-4"><span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700">{l.status}</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {empLeaveModal && (
+                <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setEmpLeaveModal(false)}>
+                  <div className="bg-white rounded-2xl p-6 w-full max-w-md space-y-4" onClick={e => e.stopPropagation()}>
+                    <h3 className="font-bold">Apply Leave</h3>
+                    <select value={newLeaveReq.type} onChange={e => setNewLeaveReq({ ...newLeaveReq, type: e.target.value })} className="w-full px-3 py-2 border rounded-xl text-sm">
+                      {leaveTypes.map(lt => <option key={lt.id} value={lt.name}>{lt.name}</option>)}
+                    </select>
+                    <div className="grid grid-cols-2 gap-2">
+                      <input type="date" value={newLeaveReq.startDate} onChange={e => setNewLeaveReq({ ...newLeaveReq, startDate: e.target.value })} className="px-3 py-2 border rounded-xl text-sm" />
+                      <input type="date" value={newLeaveReq.endDate} onChange={e => setNewLeaveReq({ ...newLeaveReq, endDate: e.target.value })} className="px-3 py-2 border rounded-xl text-sm" />
+                    </div>
+                    <input type="text" placeholder="Reason" value={newLeaveReq.reason} onChange={e => setNewLeaveReq({ ...newLeaveReq, reason: e.target.value })} className="w-full px-3 py-2 border rounded-xl text-sm" />
+                    <div className="flex justify-end gap-2">
+                      <button onClick={() => setEmpLeaveModal(false)} className="px-4 py-2 border rounded-xl text-xs">Cancel</button>
+                      <button onClick={() => { setLeaves([{ id: Date.now(), empId: activeEmployeeRecord.id, empName: activeEmployeeRecord.name, ...newLeaveReq, status: 'Pending' }, ...leaves]); setEmpLeaveModal(false); showToast('Leave submitted!'); }} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold">Submit</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        }
+
+        if (activeTab === 'emp-payroll') {
+          const myPayslips = payslips.filter(p => p.empId === activeEmployeeRecord.id);
+          return (
+            <div className="space-y-6">
+              <h2 className="text-2xl font-bold text-gray-900">My Payslips</h2>
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200 text-xs text-gray-500 uppercase font-semibold">
+                      <th className="p-4">Month</th>
+                      <th className="p-4">Basic</th>
+                      <th className="p-4">Net Pay</th>
+                      <th className="p-4 text-right">Download</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {myPayslips.map(p => (
+                      <tr key={p.id}>
+                        <td className="p-4 font-bold text-sm">{p.month}</td>
+                        <td className="p-4 text-sm">RM {formatMoney(p.basic)}</td>
+                        <td className="p-4 font-bold text-sm text-emerald-700">RM {formatMoney(p.netPay)}</td>
+                        <td className="p-4 text-right"><button onClick={() => showToast(`Downloading ${p.fileName}...`)} className="px-3 py-1 bg-blue-50 text-blue-600 rounded-lg text-xs font-bold">Download PDF</button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        }
+
+        if (activeTab === 'emp-claims') {
+          const myClaims = claims.filter(c => c.empId === activeEmployeeRecord.id);
+          return (
+            <div className="space-y-6">
+              <div className="flex justify-between items-center">
+                <h2 className="text-2xl font-bold text-gray-900">My Expense Claims</h2>
+                <button onClick={() => setEditingClaim({ refNo: `CLM-2026-${Math.floor(1000 + Math.random() * 9000)}`, type: 'Mileage, Toll & Petrol', amount: '', remarks: '' })} className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold">+ Submit Claim</button>
+              </div>
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200 text-xs text-gray-500 uppercase font-semibold">
+                      <th className="p-4">Ref No</th>
+                      <th className="p-4">Category</th>
+                      <th className="p-4">Amount</th>
+                      <th className="p-4">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {myClaims.map(c => (
+                      <tr key={c.id}>
+                        <td className="p-4 font-mono text-xs font-bold">{c.refNo}</td>
+                        <td className="p-4 text-sm">{c.type}</td>
+                        <td className="p-4 font-bold text-sm">RM {formatMoney(c.amount)}</td>
+                        <td className="p-4"><span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700">{c.status}</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {editingClaim && (
+                <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setEditingClaim(null)}>
+                  <div className="bg-white rounded-2xl p-6 w-full max-w-md space-y-4" onClick={e => e.stopPropagation()}>
+                    <h3 className="font-bold">Submit Expense Claim ({editingClaim.refNo})</h3>
+                    <select value={editingClaim.type} onChange={e => setEditingClaim({ ...editingClaim, type: e.target.value })} className="w-full px-3 py-2 border rounded-xl text-sm">
+                      {claimPolicies.map(p => <option key={p.id} value={p.category}>{p.category}</option>)}
+                    </select>
+                    <input type="number" placeholder="Amount (RM)" value={editingClaim.amount} onChange={e => setEditingClaim({ ...editingClaim, amount: e.target.value })} className="w-full px-3 py-2 border rounded-xl text-sm" />
+                    <input type="text" placeholder="Remarks" value={editingClaim.remarks} onChange={e => setEditingClaim({ ...editingClaim, remarks: e.target.value })} className="w-full px-3 py-2 border rounded-xl text-sm" />
+                    <div className="flex justify-end gap-2">
+                      <button onClick={() => setEditingClaim(null)} className="px-4 py-2 border rounded-xl text-xs">Cancel</button>
+                      <button onClick={() => { setClaims([{ id: Date.now(), refNo: editingClaim.refNo, empId: activeEmployeeRecord.id, empName: activeEmployeeRecord.name, department: activeEmployeeRecord.department, branch: activeEmployeeRecord.location, type: editingClaim.type, amount: Number(editingClaim.amount), remarks: editingClaim.remarks, submissionDate: new Date().toISOString().split('T')[0], monthYear: '2026-11', status: 'Pending' }, ...claims]); setEditingClaim(null); showToast('Claim submitted!'); }} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold">Submit</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        }
+
+        return null;
+      };
+
+      return (
+        <div className="min-h-screen flex bg-[#F8FAFC]">
+          <aside className={`${sidebarOpen ? 'w-64' : 'w-20'} bg-white border-r border-slate-200 transition-all flex flex-col shrink-0`}>
+            <div className="h-16 px-4 flex items-center justify-between border-b border-slate-100">
+              {sidebarOpen && <span className="font-extrabold text-slate-900">BengkelPro HRMS</span>}
+              <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100">
+                <Icon name="menu" size={18} />
+              </button>
+            </div>
+            <nav className="flex-1 p-3 space-y-4 overflow-y-auto">
+              {adminNavIds.length > 0 && (
+                <div className="space-y-1">
+                  {sidebarOpen && <p className="px-3 text-[10px] font-bold uppercase text-slate-400">Management Portal</p>}
+                  {adminNavIds.map(id => {
+                    const item = navItems[id];
+                    return (
+                      <button key={id} onClick={() => setActiveTab(id)} className={`w-full flex items-center px-3 py-2 rounded-xl text-xs font-semibold ${activeTab === id ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50'}`}>
+                        <Icon name={item.icon} size={16} className={sidebarOpen ? 'mr-2.5' : 'mx-auto'} />
+                        {sidebarOpen && <span>{item.label}</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {empNavIds.length > 0 && (
+                <div className="space-y-1">
+                  {sidebarOpen && <p className="px-3 text-[10px] font-bold uppercase text-slate-400">Employee Self-Service</p>}
+                  {empNavIds.map(id => {
+                    const item = navItems[id];
+                    return (
+                      <button key={id} onClick={() => setActiveTab(id)} className={`w-full flex items-center px-3 py-2 rounded-xl text-xs font-semibold ${activeTab === id ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50'}`}>
+                        <Icon name={item.icon} size={16} className={sidebarOpen ? 'mr-2.5' : 'mx-auto'} />
+                        {sidebarOpen && <span>{item.label}</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </nav>
+            {sidebarOpen && (
+              <div className="p-3 border-t border-slate-100 space-y-2">
+                <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/70">
+                  <p className="text-xs font-bold text-slate-900 truncate">{activeEmployeeRecord.name}</p>
+                  <p className="text-[11px] font-semibold text-blue-600">{currentRole}</p>
+                </div>
+                <button onClick={() => setLoggedInUser(null)} className="w-full py-2 rounded-xl text-xs font-bold text-rose-600 hover:bg-rose-50">
+                  Sign Out
+                </button>
+              </div>
+            )}
+          </aside>
+
+          <div className="flex-1 flex flex-col min-w-0">
+            <header className="h-16 bg-white border-b border-slate-200 px-6 flex items-center justify-between sticky top-0 z-30">
+              <span className="font-bold text-sm text-slate-900">{navItems[activeTab]?.label}</span>
+              <div className="flex items-center gap-3">
+                <span className="px-3 py-1 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold">
+                  Role: {currentRole}
+                </span>
+                <button onClick={() => setLoggedInUser(null)} className="px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:text-rose-600">
+                  Sign Out
+                </button>
+              </div>
+            </header>
+
+            {globalToast && (
+              <div className="mx-6 mt-4 bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-xl text-xs font-bold">
+                {globalToast}
+              </div>
+            )}
+
+            <main className="flex-1 p-6 max-w-7xl w-full mx-auto">
+              {renderContent()}
+            </main>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
